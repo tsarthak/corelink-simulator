@@ -14,7 +14,6 @@ function schedule() {
     eventTimer = setTimeout(
       () => {
         currentTime = nextEvent[0];
-        console.log("Simulation time: " + currentTime);
         nextEvent[1]();
         events.splice(0, 1);
         schedule();
@@ -39,7 +38,7 @@ function addTimeout(func: () => void, duration: number) {
 }
 
 // Simulation stuff
-let control: Control | undefined;
+let control: Control;
 
 interface Peer {
   name: string;
@@ -57,28 +56,43 @@ async function rpc(source: Peer, target: Peer, method: string, ...args: any[]) {
   const latency = dist + source.latency() + target.latency();
 
   // Wait to simulate travel time of packet
-  await sleep(latency * 50);
+  await sleep(latency * 20);
 
   // Call target function
   const result = await (target as unknown as any)[method](...args);
 
   // Wait to simulate travel time back
-  await sleep(latency * 50);
+  await sleep(latency * 20);
 
   // Return
   return result;
 }
 
 interface Connection {
-  id: string;
-  fromPeer: Peer;
-  toPeer: Peer;
+  id: number;
+  source: Peer;
+  target: Peer;
+  streamId: number;
+}
+
+const connections: {[id: string]: Connection} = {};
+let nextConnectionId = 0;
+
+function addStreamConnection(source: Peer, target: Peer, streamId: number) {
+  const id = nextConnectionId++;
+  const connection = {id, source, target, streamId};
+  connections[id] = connection;
+  source.connections[id] = connection;
+  target.connections[id] = connection;
+  draw();
 }
 
 class Client implements Peer {
   name: string;
   position: [number, number];
   connections: {[id: string]: Connection};
+
+  publishedStream?: number;
 
   latency(): number {
     return 20;
@@ -93,7 +107,7 @@ class Client implements Peer {
 
   async findHomeRelay(): Promise<Relay> {
     // Get the list of relays from control
-    const availableRelays = await control!.listRelays();
+    const availableRelays = await control.listRelays();
 
     // Ping them
     const pingPromises = [];
@@ -116,7 +130,8 @@ class Client implements Peer {
   async publishStream(streamId: number) {
     const homeRelay = await this.findHomeRelay();
 
-    // TODO
+    // Establish stream
+    addStreamConnection(this, homeRelay, streamId);
   }
 
   async subscribeStream(streamId: number) {
@@ -126,7 +141,23 @@ class Client implements Peer {
   }
 
   async shutdown() {
-    // TODO
+    // Remove from the clients
+    const idx = clients.findIndex(c => c.name === this.name);
+    if(idx !== undefined) {
+      clients.splice(idx, 1);
+    }
+
+    // Remove the connections
+    for(const connection of Object.values(this.connections)) {
+      let other;
+      if(connection.source === this) {
+        other = connection.target;
+      } else {
+        other = connection.source;
+      }
+      delete other.connections[connection.id];
+      delete connections[connection.id];
+    }
   }
 }
 
@@ -158,8 +189,8 @@ abstract class Control {
 
 // Scenario
 const relays = [
-  new Relay('us-ny-1', [100, 80], 'us-ny'),
-  new Relay('us-ny-2', [100, 85], 'us-ny'),
+  new Relay('us-ny-1', [90, 80], 'us-ny'),
+  new Relay('us-ny-2', [90, 85], 'us-ny'),
   new Relay('us-az-1', [50, 95], 'us-az'),
   new Relay('us-az-2', [55, 95], 'us-az'),
 ];
@@ -170,13 +201,15 @@ let nextStreamId = 0;
 
 // Simulation
 function addClients() {
+  let redraw = false;
+
   // 20% chance of adding a client
   if(clients.length < 100 && Math.random() < 0.2) {
     const name = 'client-' + Math.floor(Math.random() * 10000);
     console.log("Creating " + name);
     const client = new Client(
       name,
-      [Math.random() * 200, Math.random() * 100],
+      [5 + Math.random() * 90, 5 + Math.random() * 90],
     );
     clients.push(client);
 
@@ -184,6 +217,7 @@ function addClients() {
     if(streams.length === 0 || Math.random() < 0.2) {
       // Publish a stream
       const streamId = nextStreamId++;
+      client.publishedStream = streamId;
       console.log(name + " will publish " + streamId);
       streams.push(streamId);
       client.publishStream(streamId);
@@ -193,15 +227,29 @@ function addClients() {
       console.log(name + " will subscribe " + streamId);
       client.subscribeStream(streamId);
     }
+
+    redraw = true;
   }
 
   // 15% chance of removing a client
   if(clients.length > 5 && Math.random() < 0.15) {
     const idx = Math.floor(Math.random() * clients.length);
     const client = clients[idx];
-    client.shutdown();
-    clients.splice(idx, 1);
     console.log("Shutting down " + client.name);
+    if(client.publishedStream !== undefined) {
+      const streamIdx = streams.findIndex((s) => s === client.publishedStream);
+      if(streamIdx !== undefined) {
+        console.log("Shutting down stream " + client.publishedStream);
+        streams.splice(streamIdx, 1);
+      }
+    }
+    client.shutdown();
+
+    redraw = true;
+  }
+
+  if(redraw) {
+    draw();
   }
 
   addTimeout(addClients, 1000);
@@ -231,5 +279,73 @@ control = new ControlImpl();
 
 // Rendering
 function draw() {
-  // TODO
+  const canvas = document.getElementById('canvas') as HTMLCanvasElement;
+  const width = canvas.clientWidth;
+  const height = canvas.clientHeight;
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d')!;
+  ctx.clearRect(0, 0, width, height);
+
+  // Compute amount of traffic between peers
+  const traffic: {[key: string]: {source: Peer; target: Peer; amount: number}} = {};
+  for(const connection of Object.values(connections)) {
+    const key = connection.source.name + ':' + connection.target.name;
+    if(traffic[key] === undefined) {
+      traffic[key] = {source: connection.source, target: connection.target, amount: 0};
+    }
+    traffic[key].amount += 1;
+  }
+
+  // Draw links
+  for(const link of Object.values(traffic)) {
+    let source = [link.source.position[0] / 100 * width, link.source.position[1] / 100 * height];
+    let target = [link.target.position[0] / 100 * width, link.target.position[1] / 100 * height];
+
+    // Move each endpoint to the side, to make way for the reverse link
+    let dx = target[0] - source[0];
+    let dy = target[1] - source[1];
+    let len = Math.sqrt(dx * dx + dy * dy);
+    dx /= len;
+    dy /= len;
+    source[0] += dy * 10;
+    source[1] -= dx * 10;
+    target[0] += dy * 10;
+    target[1] -= dx * 10;
+
+    ctx.lineWidth = link.amount;
+    ctx.beginPath();
+    ctx.moveTo(source[0], source[1]);
+    ctx.lineTo(target[0], target[1]);
+    ctx.stroke();
+    ctx.lineWidth = 1;
+
+    // Draw the arrow
+    ctx.beginPath();
+    ctx.moveTo(target[0] - dx * 5 + dy * 5, target[1] - dy * 5 - dx * 5);
+    ctx.lineTo(target[0], target[1]);
+    ctx.lineTo(target[0] - dx * 5 - dy * 5, target[1] - dy * 5 + dx * 5);
+    ctx.stroke();
+  }
+
+  // Draw relays
+  ctx.fillStyle = 'blue';
+  for(const relay of relays) {
+    ctx.fillText(relay.name, relay.position[0] / 100.0 * width, relay.position[1] / 100.0 * height);
+  }
+
+  // Draw clients
+  ctx.fillStyle = 'red';
+  for(const client of clients) {
+    ctx.fillText(client.name,  client.position[0] / 100.0 * width, client.position[1] / 100.0 * height);
+    if(client.publishedStream !== undefined) {
+      ctx.fillText('' + client.publishedStream, client.position[0] / 100.0 * width, client.position[1] / 100.0 * height + 12);
+    }
+  }
+
+  const info = document.getElementById('info')!;
+  info.innerHTML = clients.length + ' clients, ' + streams.length + ' streams, ' + Object.values(connections).length + ' connections';
 }
+
+window.addEventListener('resize', draw);
+draw();
