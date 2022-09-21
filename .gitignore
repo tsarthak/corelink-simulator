@@ -1,4 +1,9 @@
-*.js
+**/*.js
+**/*.js.map
+**/*.tsbuildinfo
+public
+dist
 node_modules
 tsconfig.tsbuildinfo
 .*.swp
+**/.DS_Store

@@ -12,11 +12,11 @@ let eventTimer: number | undefined;
 
 function schedule() {
   events.sort((a, b) => a[0] - b[0]);
-  if(eventTimer !== undefined) {
+  if (eventTimer !== undefined) {
     clearTimeout(eventTimer);
     eventTimer = undefined;
   }
-  if(events.length > 0) {
+  if (events.length > 0) {
     const nextEvent = events[0];
     eventTimer = setTimeout(
       () => {
@@ -50,7 +50,7 @@ let control: Control;
 interface Peer {
   name: string;
   position: [number, number];
-  connections: {[id: string]: Connection};
+  connections: { [id: string]: Connection };
   running: boolean;
 
   latency(): number;
@@ -84,14 +84,14 @@ interface Connection {
   streamId: number;
 }
 
-const connections: {[id: string]: Connection} = {};
+const connections: { [id: string]: Connection } = {};
 let nextConnectionId = 0;
 
 async function addStreamConnection(source: Peer, target: Peer, streamId: number) {
   const id = nextConnectionId++;
   await source.getStream(streamId);
-  if(source.running && target.running) {
-    const connection = {id, source, target, streamId};
+  if (source.running && target.running) {
+    const connection = { id, source, target, streamId };
     connections[id] = connection;
     source.connections[id] = connection;
     target.connections[id] = connection;
@@ -103,7 +103,7 @@ async function addStreamConnection(source: Peer, target: Peer, streamId: number)
 class Client implements Peer {
   name: string;
   position: [number, number];
-  connections: {[id: string]: Connection};
+  connections: { [id: string]: Connection };
   running: boolean;
   failed: boolean;
 
@@ -123,7 +123,7 @@ class Client implements Peer {
   }
 
   async getStream(streamId: number): Promise<void> {
-    if(streamId !== this.publishedStream) {
+    if (streamId !== this.publishedStream) {
       throw new Error(this.name + " can't get stream " + streamId);
     }
   }
@@ -132,14 +132,14 @@ class Client implements Peer {
     // Get the list of relays from control
     const availableRelays = await control.listRelays();
 
-    if(availableRelays.length === 0) {
+    if (availableRelays.length === 0) {
       console.error(this.name + " got no relays to ping");
       return null;
     }
 
     // Ping them
     const pingPromises = [];
-    for(const relay of availableRelays) {
+    for (const relay of availableRelays) {
       pingPromises.push(this.ping(relay));
     }
     const pings = await Promise.all(pingPromises);
@@ -157,7 +157,7 @@ class Client implements Peer {
 
   async publishStream(streamId: number) {
     const homeRelay = await this.findHomeRelay();
-    if(homeRelay === null) {
+    if (homeRelay === null) {
       this.failed = true;
       await sleep(10000);
       await this.shutdown();
@@ -170,7 +170,7 @@ class Client implements Peer {
 
   async subscribeStream(streamId: number) {
     const homeRelay = await this.findHomeRelay();
-    if(homeRelay === null) {
+    if (homeRelay === null) {
       this.failed = true;
       await sleep(10000);
       await this.shutdown();
@@ -179,9 +179,9 @@ class Client implements Peer {
 
     // Ask control where to subscribe
     const relays = control.askSubscribe(homeRelay, streamId);
-    if(relays.length === 0) {
+    if (relays.length === 0) {
       console.log(this.name + " got no way to subscribe to stream " + streamId);
-      if(streams.findIndex(s => s === streamId) !== -1) {
+      if (streams.findIndex(s => s === streamId) !== -1) {
         console.error(this.name + " couldn't subscribe to stream " + streamId + " that still exists", streams);
         this.failed = true;
         await sleep(10000);
@@ -200,12 +200,12 @@ class Client implements Peer {
 
     // Remove from the clients
     const idx = clients.findIndex(c => c.name === this.name);
-    if(idx !== -1) {
+    if (idx !== -1) {
       clients.splice(idx, 1);
     }
 
     // Remove the connections
-    for(const connection of Object.values(this.connections)) {
+    for (const connection of Object.values(this.connections)) {
       delete connection.source.connections[connection.id];
       delete connection.target.connections[connection.id];
       delete connections[connection.id];
@@ -216,7 +216,7 @@ class Client implements Peer {
 class Relay implements Peer {
   name: string;
   position: [number, number];
-  connections: {[id: string]: Connection};
+  connections: { [id: string]: Connection };
   zone: string;
   running: boolean;
 
@@ -234,8 +234,8 @@ class Relay implements Peer {
   }
 
   async getStream(streamId: number): Promise<void> {
-    for(const connection of Object.values(this.connections)) {
-      if(connection.target === this && connection.streamId === streamId) {
+    for (const connection of Object.values(this.connections)) {
+      if (connection.target === this && connection.streamId === streamId) {
         // We are already receiving this stream
         return;
       }
@@ -273,7 +273,7 @@ function addClients() {
   let redraw = false;
 
   // Chance of adding a client
-  if(clients.length < MAX_CLIENTS && Math.random() < CLIENT_ADD_PROBA) {
+  if (clients.length < MAX_CLIENTS && Math.random() < CLIENT_ADD_PROBA) {
     const name = 'client-' + Math.floor(Math.random() * 10000);
     console.log("Creating " + name);
     const client = new Client(
@@ -283,13 +283,13 @@ function addClients() {
     clients.push(client);
 
     // 20% chance it wants to publish, 80% chance it wants to subscribe
-    if(streams.length === 0 || Math.random() < 0.2) {
+    if (streams.length === 0 || Math.random() < 0.2) {
       // Publish a stream
       const streamId = nextStreamId++;
       client.publishedStream = streamId;
       console.log(name + " will publish " + streamId);
       client.publishStream(streamId).then(() => {
-        if(client.running) {
+        if (client.running) {
           streams.push(streamId);
         }
       });
@@ -304,13 +304,13 @@ function addClients() {
   }
 
   // Chance of removing a client
-  if(clients.length > 5 && Math.random() < CLIENT_REMOVE_PROBA) {
+  if (clients.length > 5 && Math.random() < CLIENT_REMOVE_PROBA) {
     const idx = Math.floor(Math.random() * clients.length);
     const client = clients[idx];
     console.log("Shutting down " + client.name);
-    if(client.publishedStream !== undefined) {
+    if (client.publishedStream !== undefined) {
       const streamIdx = streams.findIndex((s) => s === client.publishedStream);
-      if(streamIdx !== -1) {
+      if (streamIdx !== -1) {
         console.log("Shutting down stream " + client.publishedStream);
         streams.splice(streamIdx, 1);
       }
@@ -320,7 +320,7 @@ function addClients() {
     redraw = true;
   }
 
-  if(redraw) {
+  if (redraw) {
     draw();
   }
 
@@ -330,7 +330,7 @@ addTimeout(addClients, CLIENT_CHANGE_RATE);
 
 // Control logic
 class ControlImpl extends Control {
-  streams: {[id: string]: {firstRelay: Relay}};
+  streams: { [id: string]: { firstRelay: Relay } };
 
   constructor() {
     super();
@@ -339,20 +339,20 @@ class ControlImpl extends Control {
 
   listRelays(): Relay[] {
     // Pick one relay per zone
-    const zones: {[zone: string]: Relay} = {};
-    for(const relay of relays) {
-      if(relay.isOverloaded()) {
+    const zones: { [zone: string]: Relay } = {};
+    for (const relay of relays) {
+      if (relay.isOverloaded()) {
         // Overloaded, skip
         continue;
       }
       const relayConnections = Object.values(relay.connections).length;
 
-      if(zones[relay.zone] === undefined) {
+      if (zones[relay.zone] === undefined) {
         // No pick yet, pick this
         zones[relay.zone] = relay;
       } else {
         const prevConnections = Object.values(zones[relay.zone].connections).length;
-        if(relayConnections < prevConnections) {
+        if (relayConnections < prevConnections) {
           // This is better than previous pick
           zones[relay.zone] = relay;
         }
@@ -368,34 +368,34 @@ class ControlImpl extends Control {
     // Find the source relay for that stream
     //const sourceRelay = this.streams[streamId].firstRelay;
     let sourceRelay: Relay | undefined = undefined;
-    for(const relay of relays) {
-      for(const connection of Object.values(relay.connections)) {
-        if(connection.streamId === streamId && connection.source instanceof Client) {
+    for (const relay of relays) {
+      for (const connection of Object.values(relay.connections)) {
+        if (connection.streamId === streamId && connection.source instanceof Client) {
           sourceRelay = connection.target as Relay;
         }
       }
     }
-    if(sourceRelay === undefined) {
-      if(streams.findIndex(s => s === streamId) !== -1) {
+    if (sourceRelay === undefined) {
+      if (streams.findIndex(s => s === streamId) !== -1) {
         console.error("control couldn't find source relay for stream " + streamId + " that still exists", streams);
       }
       return [];
     }
 
     // If not overloaded, it's a candidate
-    if(!sourceRelay.isOverloaded()) {
+    if (!sourceRelay.isOverloaded()) {
       candidates.push(sourceRelay);
     }
 
     let foundRelayInHomeZone = false;
     // Try to find another relay in the home zone that's not overloaded and already has the stream
-    for(const otherHomeRelay of relays) {
-      if(
+    for (const otherHomeRelay of relays) {
+      if (
         otherHomeRelay.zone === homeRelay.zone
         && !otherHomeRelay.isOverloaded()
       ) {
-        for(const connection of Object.values(otherHomeRelay.connections)) {
-          if(
+        for (const connection of Object.values(otherHomeRelay.connections)) {
+          if (
             connection.target === otherHomeRelay
             && connection.streamId === streamId
           ) {
@@ -407,7 +407,7 @@ class ControlImpl extends Control {
     }
 
     // Add the client's home relay
-    if(!foundRelayInHomeZone) {
+    if (!foundRelayInHomeZone) {
       candidates.push(homeRelay);
     }
     return candidates;
@@ -431,17 +431,17 @@ function draw() {
   ctx.font = 'bold ' + fontSize + 'px serif';
 
   // Compute amount of traffic between peers
-  const traffic: {[key: string]: {source: Peer; target: Peer; amount: number}} = {};
-  for(const connection of Object.values(connections)) {
+  const traffic: { [key: string]: { source: Peer; target: Peer; amount: number } } = {};
+  for (const connection of Object.values(connections)) {
     const key = connection.source.name + ':' + connection.target.name;
-    if(traffic[key] === undefined) {
-      traffic[key] = {source: connection.source, target: connection.target, amount: 0};
+    if (traffic[key] === undefined) {
+      traffic[key] = { source: connection.source, target: connection.target, amount: 0 };
     }
     traffic[key].amount += 1;
   }
 
   // Draw links
-  for(const link of Object.values(traffic)) {
+  for (const link of Object.values(traffic)) {
     let source = [link.source.position[0] / 100 * width, link.source.position[1] / 100 * height];
     let target = [link.target.position[0] / 100 * width, link.target.position[1] / 100 * height];
 
@@ -473,8 +473,8 @@ function draw() {
 
   // Draw relays
   ctx.strokeStyle = '#f28282';
-  for(const relay of relays) {
-    if(relay.isOverloaded()) {
+  for (const relay of relays) {
+    if (relay.isOverloaded()) {
       ctx.beginPath();
       ctx.moveTo(relay.position[0] / 100.0 * width - 30, relay.position[1] / 100.0 * height);
       ctx.lineTo(relay.position[0] / 100.0 * width + 30, relay.position[1] / 100.0 * height);
@@ -488,12 +488,12 @@ function draw() {
 
   // Draw clients
   ctx.fillStyle = '#008056';
-  for(const client of clients) {
-    ctx.fillText(client.name,  client.position[0] / 100.0 * width, client.position[1] / 100.0 * height);
-    if(client.publishedStream !== undefined) {
+  for (const client of clients) {
+    ctx.fillText(client.name, client.position[0] / 100.0 * width, client.position[1] / 100.0 * height);
+    if (client.publishedStream !== undefined) {
       ctx.fillText('' + client.publishedStream, client.position[0] / 100.0 * width, client.position[1] / 100.0 * height + fontSize);
     }
-    if(client.failed) {
+    if (client.failed) {
       ctx.strokeStyle = '#ff0000';
       ctx.lineWidth = 2;
       ctx.beginPath();
